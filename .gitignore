@@ -1,0 +1,15 @@
+.env*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+db.sqlite3
+backend/staticfiles/
+node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+.DS_Store
+graphify-out/

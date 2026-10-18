@@ -1,0 +1,14 @@
+# Render Blueprint: New > Blueprint > pick this repo. Free web service, Docker runtime.
+services:
+  - type: web
+    name: spotter-truck-routing
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: .onrender.com
+      - key: PLAN_RATE_LIMIT
+        value: 20/min
