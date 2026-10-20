@@ -232,3 +232,24 @@ def test_heatmap_failure_still_returns_routes(monkeypatch):
 
 def test_plan_without_problems_has_no_notices(plan):
     assert plan["notices"] == []
+
+
+def test_find_routes_skips_failed_detours():
+    from trips.providers import ProviderError
+
+    class Flaky(OneRouteRouter):
+        def route(self, waypoints, alternatives=0):
+            if len(waypoints) == 3 and len(self.calls) % 2:
+                self.calls.append(waypoints)
+                raise ProviderError("router.project-osrm.org request failed: timeout")
+            return super().route(waypoints, alternatives)
+
+    routes = planner.find_routes(Flaky(), (41.88, -87.63), (38.63, -90.20))
+    assert len(routes) == 3
+
+
+def test_find_routes_stops_at_deadline(monkeypatch):
+    monkeypatch.setattr(planner, "DETOUR_BUDGET_S", -1)
+    router = OneRouteRouter()
+    assert len(planner.find_routes(router, (41.88, -87.63), (38.63, -90.20))) == 1
+    assert len(router.calls) == 1

@@ -18,7 +18,7 @@ from django.core.cache import cache
 
 from .geo import METERS_PER_MILE, LatLon, bearing, decode_polyline, destination, haversine_mi, interpolate
 
-TIMEOUT_S = 15
+TIMEOUT_S = 10
 session = requests.Session()
 session.headers["User-Agent"] = "spotter-weather-routing/1.0 (assessment demo)"
 

@@ -2,7 +2,7 @@
 
 import logging
 import math
-from concurrent.futures import ThreadPoolExecutor
+import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -17,6 +17,7 @@ from .risk import Risk, assess
 logger = logging.getLogger(__name__)
 
 ROUTE_IDS = "ABC"
+DETOUR_BUDGET_S = 20
 TRACK_STEP_MI = 2.0
 
 
@@ -57,16 +58,21 @@ def find_routes(router, origin: LatLon, dest: LatLon, wanted: int = 3) -> list[R
         for along in (0.5, 0.35, 0.65)
         for side in (90, -90)
     ]
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        candidates = pool.map(lambda v: router.route([origin, v, dest]), vias)
-    for found in candidates:
+    # One at a time with a deadline: the public OSRM server throttles bursts, and Vercel caps a request at 60 s.
+    deadline = time.monotonic() + DETOUR_BUDGET_S
+    for via in vias:
+        if len(routes) == wanted or time.monotonic() > deadline:
+            break
+        try:
+            found = router.route([origin, via, dest])
+        except ProviderError as exc:  # one failed detour must not sink the whole plan
+            logger.warning("detour via %s skipped: %s", via, exc)
+            continue
         for cand in found[:1]:
             if cand.duration_s > fastest * settings.MAX_DETOUR_RATIO:
                 continue
             if all(_overlap(cand, r) < 0.85 and _overlap(r, cand) < 0.85 for r in routes):
                 routes.append(cand)
-        if len(routes) == wanted:
-            break
     return routes
 
 

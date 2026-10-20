@@ -39,7 +39,7 @@ the storm.
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Backend unit + API (103) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
+| Backend unit + API (105) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
 | Frontend unit (17) | `cd frontend && npm test` | polyline decoding, colour ramps, heatmap pixels, truck interpolation, form payload, route list, API errors |
 | End-to-end (22) | `cd frontend && npm run test:e2e` | production build served by gunicorn, on desktop and mobile: plan, select, slider, play, layers, HOS stops, suggestions, validation, upstream errors, light/dark + reduced motion, heatmap outage, no console errors |
 
