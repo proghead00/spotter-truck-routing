@@ -1,5 +1,7 @@
 # Weather-Aware Truck Routing
 
+**Live: https://spotter-truck-routing-seven.vercel.app**
+
 React + Django app that helps a truck driver pick the safest route. It weighs weather at the moment the
 truck reaches each checkpoint, the load weight and the travel time.
 
@@ -132,9 +134,17 @@ The response has `routes[]`, each with summary, checkpoints, coloured spans, HOS
 
 ## Deploy
 
-The repo builds into one Docker image: the React build is served by Django/WhiteNoise next to the API.
+**Live on Vercel** (free Hobby plan): the React build is served from the CDN and Django runs as a Python
+function for `/api/*` (`vercel.json`, `api/index.py`). To redeploy:
 
-- **Render:** New → Blueprint → select this repo (`render.yaml`). It generates the secret key and sets the host.
+```bash
+npx vercel deploy --prod   # needs DJANGO_SECRET_KEY and DJANGO_ALLOWED_HOSTS=.vercel.app set on the project
+```
+
+The same code also ships as one Docker image, where Django/WhiteNoise serves the React build next to the API:
+
+- **Render:** New → Blueprint → select this repo (`render.yaml`).
+- **Hugging Face Spaces:** `HF_TOKEN=... scripts/deploy-hf.sh` (Docker Spaces need a PRO account).
 - **Anywhere with Docker:**
   `docker build -t truck-routing . && docker run -p 8000:8000 -e DJANGO_SECRET_KEY=... -e DJANGO_ALLOWED_HOSTS=your.host truck-routing`
 
