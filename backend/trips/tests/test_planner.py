@@ -209,3 +209,26 @@ def test_long_trip_includes_hos_stops():
     no_hos = planner.plan_trip(CHICAGO, denver, datetime.now(UTC), 20_000, 50, hos=False)
     assert no_hos["routes"][0]["stops"] == []
     assert no_hos["routes"][0]["duration_s"] == no_hos["routes"][0]["summary"]["drive_s"]
+
+
+def test_heatmap_failure_still_returns_routes(monkeypatch):
+    from trips.providers import FakeWeather, ProviderError
+
+    real = FakeWeather.hourly
+    calls = []
+
+    def flaky(self, points, start, end, max_locations=None):
+        calls.append(len(points))
+        if len(calls) == 2:  # second call is the heatmap
+            raise ProviderError("api.open-meteo.com is rate-limiting requests")
+        return real(self, points, start, end, max_locations)
+
+    monkeypatch.setattr(FakeWeather, "hourly", flaky)
+    plan = planner.plan_trip(CHICAGO, ST_LOUIS, datetime.now(UTC), 35_000, 25)
+    assert plan["heatmap"] is None
+    assert "heatmap is unavailable" in plan["notices"][0]
+    assert len(plan["routes"]) == 3 and plan["recommendation"]["route_id"]
+
+
+def test_plan_without_problems_has_no_notices(plan):
+    assert plan["notices"] == []

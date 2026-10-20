@@ -65,5 +65,8 @@ PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io")
 TRUCK_MAX_MPH = float(os.environ.get("TRUCK_MAX_MPH", 65))  # router is a car profile; cap to truck speed
 MAX_DETOUR_RATIO = 1.6  # forced alternatives may be at most 60% slower than the fastest
 HEATMAP_CORRIDOR_MI = 35
-HEATMAP_MAX_CELLS = 200  # weather locations per heatmap, i.e. the per-search API budget
+# Open-Meteo's free tier allows ~600 locations per minute per IP, so a search spends at most
+# WEATHER_MAX_LOCATIONS + HEATMAP_MAX_CELLS (~150). With a commercial key the budget can go up.
+WEATHER_MAX_LOCATIONS = int(os.environ.get("WEATHER_MAX_LOCATIONS", 1000 if OPEN_METEO_API_KEY else 90))
+HEATMAP_MAX_CELLS = int(os.environ.get("HEATMAP_MAX_CELLS", 400 if OPEN_METEO_API_KEY else 60))
 HEATMAP_MIN_CELL_MI = 8

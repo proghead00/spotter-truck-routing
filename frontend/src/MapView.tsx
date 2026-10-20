@@ -227,8 +227,8 @@ type Props = {
 export default function MapView({ plan, selectedId, onSelect, hour, layer, showHeatmap }: Props) {
   const dark = useMediaQuery('(prefers-color-scheme: dark)')
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
-  const frame = useHeatmapFrame(plan?.heatmap, layer, hour)
-  const elapsed = plan ? plan.heatmap.times[hour] - Date.parse(plan.departure) / 1000 : 0
+  const frame = useHeatmapFrame(plan?.heatmap ?? undefined, layer, hour)
+  const elapsed = plan?.heatmap ? plan.heatmap.times[hour] - Date.parse(plan.departure) / 1000 : 0
 
   return (
     <MapContainer
@@ -249,7 +249,7 @@ export default function MapView({ plan, selectedId, onSelect, hour, layer, showH
       {plan && (
         <>
           <FitToPlan plan={plan} reduceMotion={reduceMotion} />
-          {showHeatmap && frame && (
+          {showHeatmap && frame && plan.heatmap && (
             <ImageOverlay
               url={frame}
               bounds={plan.heatmap.bounds as LatLngBoundsExpression}

@@ -75,7 +75,8 @@ export type Plan = {
   hos: boolean
   routes: Route[]
   recommendation: { route_id: string; reason: string; warning: string | null; criteria: string[] }
-  heatmap: Heatmap
+  heatmap: Heatmap | null // null when the weather API had no budget left for it
+  notices: string[]
 }
 
 export type PlanRequest = {

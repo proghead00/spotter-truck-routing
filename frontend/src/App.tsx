@@ -74,6 +74,11 @@ export default function App() {
         {loading && !plan && <Skeleton />}
         {plan && (
           <div className={loading ? 'stale' : ''}>
+            {plan.notices?.map((n) => (
+              <p key={n} className="notice" role="status">
+                {n}
+              </p>
+            ))}
             <RouteList plan={plan} selectedId={selectedId} onSelect={setSelectedId} />
           </div>
         )}
@@ -95,7 +100,7 @@ export default function App() {
             showHeatmap={showHeatmap}
           />
         </Suspense>
-        {plan && (
+        {plan?.heatmap && (
           <Timeline
             heatmap={plan.heatmap}
             hour={hour}

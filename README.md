@@ -39,9 +39,9 @@ the storm.
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Backend unit + API (100) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
+| Backend unit + API (103) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
 | Frontend unit (17) | `cd frontend && npm test` | polyline decoding, colour ramps, heatmap pixels, truck interpolation, form payload, route list, API errors |
-| End-to-end (20) | `cd frontend && npm run test:e2e` | production build served by gunicorn, on desktop and mobile: plan, select, slider, play, layers, HOS stops, suggestions, validation, upstream errors, light/dark + reduced motion, no console errors |
+| End-to-end (22) | `cd frontend && npm run test:e2e` | production build served by gunicorn, on desktop and mobile: plan, select, slider, play, layers, HOS stops, suggestions, validation, upstream errors, light/dark + reduced motion, heatmap outage, no console errors |
 
 Lint: `ruff check . && ruff format --check .` (backend) and `npm run lint` (frontend). CI runs all of it on every push.
 
@@ -104,10 +104,14 @@ of rain, or 3.0 in/hr of snow, is still Severe, because No Travel is written as 
   image, upsamples it with smoothing and lays it over the map as one image. Scrubbing swaps one cached
   image, so the map never redraws hundreds of shapes. Route layers are memoised and never re-render while you
   scrub.
-- **API budget.** Checkpoints and heatmap cells share one deduplicated Open-Meteo call. Points are snapped
-  to about 3.5 mi and sent 100 per request. Results are cached for 30 minutes and the heatmap is capped at
-  200 cells. A typical search costs about 300 location-calls, well within Open-Meteo's free tier. Set
-  `OPEN_METEO_API_KEY` for heavier use.
+- **API budget.** Open-Meteo's free tier allows about 600 locations per minute per IP. Each search spends at
+  most about 150: up to 90 for checkpoints and 60 heatmap cells. On long trips at 10 mi spacing, nearby
+  checkpoints share the nearest forecast grid point; the grid is coarsened only as far as the budget needs,
+  about 0.1-0.25°, close to the resolution of the forecast models. Each checkpoint still gets its own ETA hour.
+  Points go 100 per request and results are cached for 30 minutes.
+- **Graceful degradation.** Checkpoint weather is fetched first. If the heatmap call is rate-limited, the
+  routes and recommendation still come back, with a notice that the heatmap is unavailable. Set
+  `OPEN_METEO_API_KEY` to raise both budgets.
 
 ## API
 

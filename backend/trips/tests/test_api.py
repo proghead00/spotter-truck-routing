@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -194,3 +195,30 @@ def test_photon_parsing():
     (place,) = providers.PhotonGeocoder().search("Dallas")
     assert place.label == "Dallas, Texas, United States"
     assert (place.lat, place.lon) == (32.7767, -96.797)
+
+
+@responses.activate
+def test_open_meteo_respects_location_budget():
+    cache.clear()
+
+    def reply(request):
+        n = len(request.params["latitude"].split(","))
+        item = {
+            "hourly": {
+                "time": [1_800_000_000],
+                "wind_speed_10m": [5],
+                "wind_gusts_10m": [9],
+                "rain": [0],
+                "showers": [0],
+                "snowfall": [0],
+            }
+        }
+        return 200, {}, json.dumps([item] * n if n > 1 else item)
+
+    responses.add_callback(responses.GET, "https://api.open-meteo.com/v1/forecast", callback=reply)
+    points = [(35 + i * 0.02, -100 + i * 0.03) for i in range(500)]  # ~500 distinct spots along a line
+    start = datetime(2027, 1, 15, 8, tzinfo=UTC)
+    forecasts = providers.OpenMeteoWeather().hourly(points, start, start, max_locations=40)
+    assert len(forecasts) == 500
+    fetched = sum(len(c.request.params["latitude"].split(",")) for c in responses.calls)
+    assert fetched <= 40

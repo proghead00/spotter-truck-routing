@@ -132,3 +132,18 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.screenshot({ path: info.outputPath(`${scheme}.png`) })
   })
 }
+
+test('still shows routes when the heatmap could not be fetched', async ({ page }) => {
+  await page.route('**/api/plan', async (route) => {
+    const response = await route.fetch()
+    const json = await response.json()
+    json.heatmap = null
+    json.notices = ['The weather heatmap is unavailable right now (weather API busy). Routes and risk are complete.']
+    await route.fulfill({ response, json })
+  })
+  await planTrip(page)
+  await expect(page.getByText(/heatmap is unavailable/)).toBeVisible()
+  await expect(page.locator('.timeline')).toHaveCount(0)
+  await expect(page.locator('img.heatmap-layer')).toHaveCount(0)
+  await expect(page.locator('.recommendation')).toContainText('Route B')
+})

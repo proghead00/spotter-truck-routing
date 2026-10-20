@@ -342,6 +342,15 @@ fieldset.field > legend + * {
 
 /* ---------------------------------------------------------------- results */
 
+.notice {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
 .empty {
   color: var(--muted);
   font-size: 13px;

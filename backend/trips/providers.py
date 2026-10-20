@@ -142,12 +142,21 @@ class OpenMeteoWeather:
     CHUNK = 100  # locations per request
     SNAP_DEG = 0.05  # ~3.5 mi, finer than the forecast models; lets nearby points share a fetch
 
-    def hourly(self, points: list[LatLon], start: datetime, end: datetime) -> list[Forecast]:
-        snap = [
-            (round(lat / self.SNAP_DEG) * self.SNAP_DEG, round(lon / self.SNAP_DEG) * self.SNAP_DEG)
-            for lat, lon in points
-        ]
-        unique = list(dict.fromkeys(snap))
+    def hourly(
+        self, points: list[LatLon], start: datetime, end: datetime, max_locations: int | None = None
+    ) -> list[Forecast]:
+        """Forecasts for `points`, fetching each distinct grid point once.
+
+        Every location counts against Open-Meteo's per-minute quota, so with `max_locations`
+        the snapping grid is coarsened until the distinct points fit the budget.
+        """
+        step = self.SNAP_DEG
+        while True:
+            snap = [(round(lat / step) * step, round(lon / step) * step) for lat, lon in points]
+            unique = list(dict.fromkeys(snap))
+            if not max_locations or len(unique) <= max_locations:
+                break
+            step *= 1.25
         # Sequential on purpose: the free tier rate-limits bursts per minute.
         fetched = [
             f for i in range(0, len(unique), self.CHUNK) for f in self._fetch(unique[i : i + self.CHUNK], start, end)
@@ -198,7 +207,9 @@ class FakeWeather:
 
     CENTER, RADIUS_MI, DRIFT_MPH = (39.6, -89.9), 70.0, 12.0
 
-    def hourly(self, points: list[LatLon], start: datetime, end: datetime) -> list[Forecast]:
+    def hourly(
+        self, points: list[LatLon], start: datetime, end: datetime, max_locations: int | None = None
+    ) -> list[Forecast]:
         t0 = int(start.timestamp()) // 3600 * 3600
         times = list(range(t0, int(end.timestamp()) + 1, 3600))
         centers = [destination(self.CENTER, 90, self.DRIFT_MPH * (t - t0) / 3600) for t in times]

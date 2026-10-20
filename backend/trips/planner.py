@@ -1,5 +1,6 @@
 """Trip planning: three routes -> timed checkpoints -> weather risk -> recommendation."""
 
+import logging
 import math
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -10,8 +11,10 @@ from django.conf import settings
 from .geo import LatLon, Line, bearing, cumulative, destination, encode_polyline, haversine_mi, interpolate
 from .heatmap import HOURS as HEATMAP_HOURS
 from .heatmap import build_heatmap, corridor_grid
-from .providers import Forecast, RawRoute, get_providers
+from .providers import Forecast, ProviderError, RawRoute, get_providers
 from .risk import Risk, assess
+
+logger = logging.getLogger(__name__)
 
 ROUTE_IDS = "ABC"
 TRACK_STEP_MI = 2.0
@@ -310,13 +313,21 @@ def plan_trip(
         miles_per_route.append(miles)
         points.extend(line.point_at(m) for m in miles)
 
-    # One weather request covers both the checkpoints (until arrival) and the heatmap (0-48 h).
-    grid = corridor_grid([ev.line for ev in evaluated], settings.HEATMAP_CORRIDOR_MI, settings.HEATMAP_MAX_CELLS)
+    # Checkpoint weather is essential; the heatmap is a nice-to-have that may not fit the rate limit.
     start = departure.replace(minute=0, second=0, microsecond=0)
     longest = max(ev.duration_s for ev in evaluated)
-    end = max(start + timedelta(hours=HEATMAP_HOURS + 1), departure + timedelta(seconds=longest + 2 * 3600))
-    forecasts = weather.hourly(points + grid["centers"], start, end)
-    heatmap = build_heatmap(grid, forecasts[len(points) :], start, load_lb)
+    forecasts = weather.hourly(
+        points, start, departure + timedelta(seconds=longest + 2 * 3600), settings.WEATHER_MAX_LOCATIONS
+    )
+    notices = []
+    try:
+        grid = corridor_grid([ev.line for ev in evaluated], settings.HEATMAP_CORRIDOR_MI, settings.HEATMAP_MAX_CELLS)
+        heat = weather.hourly(grid["centers"], start, start + timedelta(hours=HEATMAP_HOURS + 1))
+        heatmap = build_heatmap(grid, heat, start, load_lb)
+    except ProviderError as exc:
+        logger.warning("heatmap skipped: %s", exc)
+        heatmap = None
+        notices.append("The weather heatmap is unavailable right now (weather API busy). Routes and risk are complete.")
 
     routes, k = [], 0
     for route_id, ev, miles in zip(ROUTE_IDS, evaluated, miles_per_route):
@@ -348,4 +359,5 @@ def plan_trip(
         "routes": routes,
         "recommendation": recommend(routes),
         "heatmap": heatmap,
+        "notices": notices,
     }
