@@ -3,8 +3,6 @@
 import logging
 import math
 import time
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -20,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 ROUTE_IDS = "ABC"
 DETOUR_BUDGET_S = 15
-HEATMAP_EXTRA_WAIT_S = 15  # after checkpoint weather arrives
 TRACK_STEP_MI = 2.0
 
 
@@ -63,6 +60,7 @@ def find_routes(router, origin: LatLon, dest: LatLon, wanted: int = 3) -> list[R
     ]
     # One at a time with a deadline: the public OSRM server throttles bursts, and Vercel caps a request at 60 s.
     deadline = time.monotonic() + DETOUR_BUDGET_S
+    spare = []
     for via in vias:
         if len(routes) == wanted or time.monotonic() > deadline:
             break
@@ -72,10 +70,17 @@ def find_routes(router, origin: LatLon, dest: LatLon, wanted: int = 3) -> list[R
             logger.warning("detour via %s skipped: %s", via, exc)
             continue
         for cand in found[:1]:
-            if cand.duration_s > fastest * settings.MAX_DETOUR_RATIO:
-                continue
-            if all(_overlap(cand, r) < 0.85 and _overlap(r, cand) < 0.85 for r in routes):
+            overlap = max(max(_overlap(cand, r), _overlap(r, cand)) for r in routes)
+            if overlap < 0.85 and cand.duration_s <= fastest * settings.MAX_DETOUR_RATIO:
                 routes.append(cand)
+            elif overlap < 0.98 and cand.duration_s <= fastest * 2.5:
+                spare.append((overlap, cand.duration_s, cand))
+    # Still short (few roads, e.g. along I-10 in the desert): take the most distinct of the rejects.
+    for _, _, cand in sorted(spare, key=lambda x: x[:2]):
+        if len(routes) == wanted:
+            break
+        if all(max(_overlap(cand, r), _overlap(r, cand)) < 0.98 for r in routes):
+            routes.append(cand)
     return routes
 
 
@@ -306,12 +311,6 @@ def _steps(length: float, step: float) -> list[float]:
     return [i * step for i in range(int(length // step) + 1)]
 
 
-def _heatmap(weather, lines: list[Line], start: datetime, load_lb: float) -> dict:
-    grid = corridor_grid(lines, settings.HEATMAP_CORRIDOR_MI, settings.HEATMAP_MAX_CELLS)
-    forecasts = weather.hourly(grid["centers"], start, start + timedelta(hours=HEATMAP_HOURS + 1))
-    return build_heatmap(grid, forecasts, start, load_lb)
-
-
 def plan_trip(
     origin: dict, dest: dict, departure: datetime, load_lb: float, interval_mi: int, hos: bool = True
 ) -> dict:
@@ -328,27 +327,13 @@ def plan_trip(
         miles_per_route.append(miles)
         points.extend(line.point_at(m) for m in miles)
 
-    # Checkpoint weather is essential and its errors propagate. The heatmap is a nice-to-have: it is fetched
-    # alongside and gets only a short extra wait, so a slow or rate-limited heatmap becomes a notice.
+    # One weather fetch serves both the checkpoints (until arrival) and the heatmap (hours 0-48).
     start = departure.replace(minute=0, second=0, microsecond=0)
     longest = max(ev.duration_s for ev in evaluated)
-    notices = []
-    pool = ThreadPoolExecutor(max_workers=1)
-    heat_future = pool.submit(_heatmap, weather, [ev.line for ev in evaluated], start, load_lb)
-    try:
-        forecasts = weather.hourly(
-            points, start, departure + timedelta(seconds=longest + 2 * 3600), settings.WEATHER_MAX_LOCATIONS
-        )
-        try:
-            heatmap = heat_future.result(timeout=HEATMAP_EXTRA_WAIT_S)
-        except (ProviderError, FutureTimeout) as exc:
-            logger.warning("heatmap skipped: %r", exc)
-            heatmap = None
-            notices.append(
-                "The weather heatmap is unavailable right now (weather API busy). Routes and risk are complete."
-            )
-    finally:
-        pool.shutdown(wait=False, cancel_futures=True)
+    end = max(start + timedelta(hours=HEATMAP_HOURS + 1), departure + timedelta(seconds=longest + 2 * 3600))
+    forecasts = weather.hourly(points, start, end, settings.WEATHER_MAX_LOCATIONS)
+    grid = corridor_grid([ev.line for ev in evaluated], settings.HEATMAP_CORRIDOR_MI, settings.HEATMAP_MAX_CELLS)
+    heatmap = build_heatmap(grid, points, forecasts, start, load_lb)
 
     routes, k = [], 0
     for route_id, ev, miles in zip(ROUTE_IDS, evaluated, miles_per_route):
@@ -380,5 +365,5 @@ def plan_trip(
         "routes": routes,
         "recommendation": recommend(routes),
         "heatmap": heatmap,
-        "notices": notices,
+        "notices": [],
     }

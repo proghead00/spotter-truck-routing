@@ -39,7 +39,7 @@ the storm.
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Backend unit + API (109) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
+| Backend unit + API (110) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
 | Frontend unit (17) | `cd frontend && npm test` | polyline decoding, colour ramps, heatmap pixels, truck interpolation, form payload, route list, API errors |
 | End-to-end (22) | `cd frontend && npm run test:e2e` | production build served by gunicorn, on desktop and mobile: plan, select, slider, play, layers, HOS stops, suggestions, validation, upstream errors, light/dark + reduced motion, heatmap outage, no console errors |
 
@@ -60,7 +60,7 @@ React (Vite, Leaflet)  ──POST /api/plan──▶  Django + DRF
 | --- | --- |
 | `risk.py` | Risk table + load rules → level (and a continuous index for the heatmap) |
 | `planner.py` | routes → truck ETAs (speed cap + HOS) → checkpoints → weather → summaries → recommendation |
-| `heatmap.py` | Web-Mercator grid of cells inside a 35 mi corridor, hourly frames for 0-48 h |
+| `heatmap.py` | Web-Mercator grid of cells inside a 35 mi corridor, hourly frames for 0-48 h, blended from the route forecasts |
 | `providers.py` | OSRM / Open-Meteo / Photon clients with caching, plus the `Fake*` twins |
 | `geo.py` | haversine, polyline codec, milepost interpolation |
 | `views.py` | DRF endpoints, validation, error mapping (400 / 422 / 429 / 502) |
@@ -104,16 +104,16 @@ of rain, or 3.0 in/hr of snow, is still Severe, because No Travel is written as 
   image, upsamples it with smoothing and lays it over the map as one image. Scrubbing swaps one cached
   image, so the map never redraws hundreds of shapes. Route layers are memoised and never re-render while you
   scrub.
-- **API budget.** Open-Meteo's free tier allows about 600 locations per minute per IP. Each search spends at
-  most about 150: up to 90 for checkpoints and 60 heatmap cells. On long trips at 10 mi spacing, nearby
-  checkpoints share the nearest forecast grid point; the grid is coarsened only as far as the budget needs,
-  about 0.1-0.25°, close to the resolution of the forecast models. Each checkpoint still gets its own ETA hour.
-  Points go 25 per request, four requests in parallel; large batches are disproportionately slow on
-  Open-Meteo. A timed-out request is retried once, and results are cached for 30 minutes.
-- **Graceful degradation.** Checkpoint weather and heatmap weather are fetched at the same time, and the
-  heatmap gets only 15 s more than the checkpoints. If the heatmap call is rate-limited, the
-  routes and recommendation still come back, with a notice that the heatmap is unavailable. Set
-  `OPEN_METEO_API_KEY` to raise both budgets.
+- **API budget.** Open-Meteo's free tier allows about 600 locations per minute per IP, and every
+  location counts. One search fetches at most 120: nearby checkpoints share the nearest forecast grid point,
+  and the grid is coarsened only as far as the budget needs. Each checkpoint still gets its own ETA hour.
+  Requests go 25 locations at a time, four in parallel, because large batches are disproportionately slow.
+  A timed-out request is retried once, and results are cached for 30 minutes.
+- **Heatmap from the same forecasts.** The heatmap does not make its own weather calls. Each corridor cell
+  blends the four nearest route forecasts (inverse-distance weighting), then applies the same risk rules.
+  It costs nothing extra, so cells can be finer, and it always agrees with the checkpoints.
+- **Three routes, always.** If strict filtering leaves fewer than three (a desert interstate with few
+  roads), the most distinct remaining detour is used.
 
 ## API
 

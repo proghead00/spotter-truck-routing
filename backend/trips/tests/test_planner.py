@@ -190,7 +190,7 @@ def test_plan_trip_heatmap_shape(plan):
     assert len(heat["times"]) == 49
     assert heat["times"][1] - heat["times"][0] == 3600
     n = len(heat["cells"])
-    assert 0 < n <= 200
+    assert 0 < n <= 300
     assert all(0 <= c < heat["cols"] * heat["rows"] for c in heat["cells"])
     for key in ("risk", "wind", "rain", "snow"):
         assert len(heat[key]) == 49 and all(len(frame) == n for frame in heat[key])
@@ -211,23 +211,31 @@ def test_long_trip_includes_hos_stops():
     assert no_hos["routes"][0]["duration_s"] == no_hos["routes"][0]["summary"]["drive_s"]
 
 
-def test_heatmap_failure_still_returns_routes(monkeypatch):
-    from trips.providers import FakeWeather, ProviderError
+def test_one_weather_call_serves_checkpoints_and_heatmap(monkeypatch):
+    from trips.providers import FakeWeather
 
     real = FakeWeather.hourly
     calls = []
 
-    def flaky(self, points, start, end, max_locations=None):
-        calls.append(len(points))
-        if max_locations is None:  # the heatmap call; checkpoint weather passes a location budget
-            raise ProviderError("api.open-meteo.com is rate-limiting requests")
+    def counting(self, points, start, end, max_locations=None):
+        calls.append((len(points), max_locations, (end - start).total_seconds() / 3600))
         return real(self, points, start, end, max_locations)
 
-    monkeypatch.setattr(FakeWeather, "hourly", flaky)
+    monkeypatch.setattr(FakeWeather, "hourly", counting)
     plan = planner.plan_trip(CHICAGO, ST_LOUIS, datetime.now(UTC), 35_000, 25)
-    assert plan["heatmap"] is None
-    assert "heatmap is unavailable" in plan["notices"][0]
-    assert len(plan["routes"]) == 3 and plan["recommendation"]["route_id"]
+    assert len(calls) == 1
+    assert calls[0][1] == 120  # the location budget
+    assert calls[0][2] >= 49  # long enough for the 0-48 h heatmap
+    assert plan["heatmap"] is not None
+
+
+def test_heatmap_agrees_with_checkpoints(plan):
+    """The storm the checkpoints report must also show up in the heatmap at the same hour."""
+    heat = plan["heatmap"]
+    worst = max((c for r in plan["routes"] for c in r["checkpoints"]), key=lambda c: c["risk_index"])
+    assert worst["level"] >= Risk.HIGH
+    assert max(heat["risk"][0]) >= Risk.HIGH  # departure hour: storm visible on the map too
+    assert min(heat["risk"][0]) < Risk.MODERATE  # and calm cells far from it
 
 
 def test_plan_without_problems_has_no_notices(plan):
@@ -255,23 +263,20 @@ def test_find_routes_stops_at_deadline(monkeypatch):
     assert len(router.calls) == 1
 
 
-def test_slow_heatmap_is_skipped(monkeypatch):
-    import time as _time
+def test_find_routes_falls_back_to_least_overlapping_detour():
+    """When every detour shares most of its road with existing routes, still return three."""
 
-    from trips.providers import FakeWeather
+    class Corridor(OneRouteRouter):
+        def route(self, waypoints, alternatives=0):
+            self.calls.append(waypoints)
+            a, b = waypoints[0], waypoints[-1]
+            if len(waypoints) == 2:
+                return [self._arc(a, b, 0.0, "main")]
+            bow = 0.0025 if waypoints[1][0] > (a[0] + b[0]) / 2 else -0.0025  # ~95% shared with the main route
+            return [self._arc(a, b, bow, "wiggle")]
 
-    real = FakeWeather.hourly
-
-    def slow_heatmap(self, points, start, end, max_locations=None):
-        if max_locations is None:
-            _time.sleep(0.5)
-        return real(self, points, start, end, max_locations)
-
-    monkeypatch.setattr(FakeWeather, "hourly", slow_heatmap)
-    monkeypatch.setattr(planner, "HEATMAP_EXTRA_WAIT_S", 0.05)
-    plan = planner.plan_trip(CHICAGO, ST_LOUIS, datetime.now(UTC), 35_000, 25)
-    assert plan["heatmap"] is None and plan["notices"]
-    assert len(plan["routes"]) == 3
+    routes = planner.find_routes(Corridor(), (33.45, -112.07), (31.76, -106.49))
+    assert len(routes) == 3
 
 
 def test_checkpoint_weather_failure_is_an_error(monkeypatch):
