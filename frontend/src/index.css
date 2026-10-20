@@ -731,7 +731,7 @@ fieldset.field > legend + * {
   pointer-events: none;
 }
 
-.route-label {
+.leaflet-container .route-label {
   background: var(--surface);
   color: var(--text);
   border: 1px solid var(--border);
@@ -746,25 +746,103 @@ fieldset.field > legend + * {
   display: none;
 }
 
-.route-label.selected {
+.leaflet-container .route-label.selected {
   background: var(--accent);
   color: var(--accent-ink);
   border-color: var(--accent);
 }
 
-.leaflet-tooltip {
+.leaflet-container .leaflet-tooltip {
   background: var(--surface);
   color: var(--text);
   border-color: var(--border);
 }
 
+.leaflet-container .leaflet-tooltip-top::before {
+  border-top-color: var(--surface);
+}
+
+.leaflet-container .leaflet-tooltip-bottom::before {
+  border-bottom-color: var(--surface);
+}
+
+.leaflet-container .leaflet-tooltip-left::before {
+  border-left-color: var(--surface);
+}
+
+.leaflet-container .leaflet-tooltip-right::before {
+  border-right-color: var(--surface);
+}
+
+.leaflet-tooltip.tip-wrap {
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+
 .tip {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
+  width: 232px;
   font-size: 12px;
-  max-width: 260px;
+  line-height: 1.35;
   white-space: normal;
+}
+
+.tip-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.tip-head strong {
+  font-size: 13px;
+}
+
+.tip-pill {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 0.35);
+}
+
+.tip-eta {
+  color: var(--muted);
+}
+
+.tip-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 0;
+  padding: 6px 0;
+  border-block: 1px solid var(--border);
+}
+
+.tip-grid dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tip-grid dd {
+  margin: 0;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-grid small {
+  display: block;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tip-reason {
+  margin: 0;
 }
 
 .truck-marker span {

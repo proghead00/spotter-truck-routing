@@ -65,22 +65,76 @@ function FitToPlan({ plan, reduceMotion }: { plan: Plan; reduceMotion: boolean }
 
 function CheckpointTooltip({ c, routeId }: { c: Checkpoint; routeId: string }) {
   return (
-    <Tooltip direction="top" offset={[0, -6]}>
+    <Tooltip direction="top" offset={[0, -8]} className="tip-wrap">
       <div className="tip">
-        <strong>
-          Route {routeId} · mile {Math.round(c.mile)}
-        </strong>
-        <span>ETA {formatTime(c.eta)}</span>
-        <span>
-          Wind {Math.round(c.wind_mph)} mph (gust {Math.round(c.gust_mph)}) · Rain {c.rain_in_hr.toFixed(2)} in/hr ·
-          Snow {c.snow_in_hr.toFixed(1)} in/hr
-        </span>
-        <span style={{ color: riskColor(c.level), fontWeight: 600 }}>
-          {RISK_LABELS[c.level]}: {c.reason}
-        </span>
+        <div className="tip-head">
+          <strong>
+            Route {routeId} · mile {Math.round(c.mile)}
+          </strong>
+          <span className="tip-pill" style={{ background: riskColor(c.level) }}>
+            {RISK_LABELS[c.level]}
+          </span>
+        </div>
+        <span className="tip-eta">ETA {formatTime(c.eta)}</span>
+        <dl className="tip-grid">
+          <div>
+            <dt>Wind</dt>
+            <dd>
+              {Math.round(c.wind_mph)} mph<small>gust {Math.round(c.gust_mph)}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Rain</dt>
+            <dd>{c.rain_in_hr.toFixed(2)} in/hr</dd>
+          </div>
+          <div>
+            <dt>Snow</dt>
+            <dd>{c.snow_in_hr.toFixed(1)} in/hr</dd>
+          </div>
+        </dl>
+        <p className="tip-reason">{c.reason}</p>
       </div>
     </Tooltip>
   )
+}
+
+const TIP_OFFSETS = { top: [0, -8], bottom: [0, 8], left: [-8, 0], right: [8, 0] } as const
+const EDGE = 8
+
+/** Hover tooltips open above the point; flip them to whichever side keeps them inside the map. */
+function KeepTooltipsInView() {
+  const map = useMap()
+  useEffect(() => {
+    const place = (t: L.Tooltip, dir: keyof typeof TIP_OFFSETS) => {
+      t.options.direction = dir
+      t.options.offset = L.point(TIP_OFFSETS[dir] as unknown as [number, number])
+      t.update()
+      return t.getElement()!.getBoundingClientRect()
+    }
+    const fit = (t: L.Tooltip) => {
+      if (!t.isOpen() || !t.getElement()) return
+      const frame = map.getContainer().getBoundingClientRect()
+      let box = place(t, 'top')
+      if (box.top < frame.top + EDGE) box = place(t, 'bottom')
+      if (box.left < frame.left + EDGE) place(t, 'right')
+      else if (box.right > frame.right - EDGE) place(t, 'left')
+    }
+    // react-leaflet portals the content in after 'tooltipopen', so re-fit whenever the box changes size
+    const watchers = new WeakMap<L.Tooltip, ResizeObserver>()
+    const onOpen = ({ tooltip: t }: L.TooltipEvent) => {
+      const el = t.getElement()
+      if (t.options.permanent || !el) return
+      const ro = new ResizeObserver(() => fit(t))
+      ro.observe(el)
+      watchers.set(t, ro)
+    }
+    const onClose = ({ tooltip: t }: L.TooltipEvent) => watchers.get(t)?.disconnect()
+    map.on({ tooltipopen: onOpen, tooltipclose: onClose } as L.LeafletEventHandlerFnMap)
+    return () => {
+      map.off({ tooltipopen: onOpen, tooltipclose: onClose } as L.LeafletEventHandlerFnMap)
+    }
+  }, [map])
+  return null
 }
 
 /** Static route layers. Memoised so scrubbing the timeline never re-renders them. */
@@ -235,6 +289,7 @@ export default function MapView({ plan, selectedId, onSelect, hour, layer, showH
       className="map"
       center={[39.5, -96]}
       zoom={4}
+      zoomSnap={0.25}
       preferCanvas
       zoomAnimation={!reduceMotion}
       fadeAnimation={!reduceMotion}
@@ -246,6 +301,7 @@ export default function MapView({ plan, selectedId, onSelect, hour, layer, showH
         attribution='Tiles &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors · Routes <a href="https://project-osrm.org/">OSRM</a> · Weather <a href="https://open-meteo.com/">Open-Meteo</a>'
         maxZoom={16}
       />
+      <KeepTooltipsInView />
       {plan && (
         <>
           <FitToPlan plan={plan} reduceMotion={reduceMotion} />
