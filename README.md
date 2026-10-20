@@ -99,7 +99,8 @@ of rain, or 3.0 in/hr of snow, is still Severe, because No Travel is written as 
   criterion decided and warns when even the best route is Severe or No Travel.
 - **Three routes, every time.** OSRM often returns one or two alternatives. The rest are forced through
   via-points offset to either side of the trip. A detour is kept only if it is distinct (under 85% overlap)
-  and at most 60% slower than the fastest route.
+  and at most 60% slower than the fastest route. Detours are tried one at a time within 15 s. If that still
+  leaves fewer than three (a desert interstate with few roads), the most distinct remaining detour is used.
 - **Heatmap smoothness.** Cells sit on a Web-Mercator grid, so the browser paints each hour into a tiny
   image, upsamples it with smoothing and lays it over the map as one image. Scrubbing swaps one cached
   image, so the map never redraws hundreds of shapes. Route layers are memoised and never re-render while you
@@ -112,8 +113,6 @@ of rain, or 3.0 in/hr of snow, is still Severe, because No Travel is written as 
 - **Heatmap from the same forecasts.** The heatmap does not make its own weather calls. Each corridor cell
   blends the four nearest route forecasts (inverse-distance weighting), then applies the same risk rules.
   It costs nothing extra, so cells can be finer, and it always agrees with the checkpoints.
-- **Three routes, always.** If strict filtering leaves fewer than three (a desert interstate with few
-  roads), the most distinct remaining detour is used.
 
 ## API
 
