@@ -3,6 +3,8 @@
 import logging
 import math
 import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -17,7 +19,8 @@ from .risk import Risk, assess
 logger = logging.getLogger(__name__)
 
 ROUTE_IDS = "ABC"
-DETOUR_BUDGET_S = 20
+DETOUR_BUDGET_S = 15
+HEATMAP_EXTRA_WAIT_S = 15  # after checkpoint weather arrives
 TRACK_STEP_MI = 2.0
 
 
@@ -303,6 +306,12 @@ def _steps(length: float, step: float) -> list[float]:
     return [i * step for i in range(int(length // step) + 1)]
 
 
+def _heatmap(weather, lines: list[Line], start: datetime, load_lb: float) -> dict:
+    grid = corridor_grid(lines, settings.HEATMAP_CORRIDOR_MI, settings.HEATMAP_MAX_CELLS)
+    forecasts = weather.hourly(grid["centers"], start, start + timedelta(hours=HEATMAP_HOURS + 1))
+    return build_heatmap(grid, forecasts, start, load_lb)
+
+
 def plan_trip(
     origin: dict, dest: dict, departure: datetime, load_lb: float, interval_mi: int, hos: bool = True
 ) -> dict:
@@ -319,21 +328,27 @@ def plan_trip(
         miles_per_route.append(miles)
         points.extend(line.point_at(m) for m in miles)
 
-    # Checkpoint weather is essential; the heatmap is a nice-to-have that may not fit the rate limit.
+    # Checkpoint weather is essential and its errors propagate. The heatmap is a nice-to-have: it is fetched
+    # alongside and gets only a short extra wait, so a slow or rate-limited heatmap becomes a notice.
     start = departure.replace(minute=0, second=0, microsecond=0)
     longest = max(ev.duration_s for ev in evaluated)
-    forecasts = weather.hourly(
-        points, start, departure + timedelta(seconds=longest + 2 * 3600), settings.WEATHER_MAX_LOCATIONS
-    )
     notices = []
+    pool = ThreadPoolExecutor(max_workers=1)
+    heat_future = pool.submit(_heatmap, weather, [ev.line for ev in evaluated], start, load_lb)
     try:
-        grid = corridor_grid([ev.line for ev in evaluated], settings.HEATMAP_CORRIDOR_MI, settings.HEATMAP_MAX_CELLS)
-        heat = weather.hourly(grid["centers"], start, start + timedelta(hours=HEATMAP_HOURS + 1))
-        heatmap = build_heatmap(grid, heat, start, load_lb)
-    except ProviderError as exc:
-        logger.warning("heatmap skipped: %s", exc)
-        heatmap = None
-        notices.append("The weather heatmap is unavailable right now (weather API busy). Routes and risk are complete.")
+        forecasts = weather.hourly(
+            points, start, departure + timedelta(seconds=longest + 2 * 3600), settings.WEATHER_MAX_LOCATIONS
+        )
+        try:
+            heatmap = heat_future.result(timeout=HEATMAP_EXTRA_WAIT_S)
+        except (ProviderError, FutureTimeout) as exc:
+            logger.warning("heatmap skipped: %r", exc)
+            heatmap = None
+            notices.append(
+                "The weather heatmap is unavailable right now (weather API busy). Routes and risk are complete."
+            )
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     routes, k = [], 0
     for route_id, ev, miles in zip(ROUTE_IDS, evaluated, miles_per_route):

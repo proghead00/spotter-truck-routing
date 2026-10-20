@@ -219,7 +219,7 @@ def test_heatmap_failure_still_returns_routes(monkeypatch):
 
     def flaky(self, points, start, end, max_locations=None):
         calls.append(len(points))
-        if len(calls) == 2:  # second call is the heatmap
+        if max_locations is None:  # the heatmap call; checkpoint weather passes a location budget
             raise ProviderError("api.open-meteo.com is rate-limiting requests")
         return real(self, points, start, end, max_locations)
 
@@ -253,3 +253,33 @@ def test_find_routes_stops_at_deadline(monkeypatch):
     router = OneRouteRouter()
     assert len(planner.find_routes(router, (41.88, -87.63), (38.63, -90.20))) == 1
     assert len(router.calls) == 1
+
+
+def test_slow_heatmap_is_skipped(monkeypatch):
+    import time as _time
+
+    from trips.providers import FakeWeather
+
+    real = FakeWeather.hourly
+
+    def slow_heatmap(self, points, start, end, max_locations=None):
+        if max_locations is None:
+            _time.sleep(0.5)
+        return real(self, points, start, end, max_locations)
+
+    monkeypatch.setattr(FakeWeather, "hourly", slow_heatmap)
+    monkeypatch.setattr(planner, "HEATMAP_EXTRA_WAIT_S", 0.05)
+    plan = planner.plan_trip(CHICAGO, ST_LOUIS, datetime.now(UTC), 35_000, 25)
+    assert plan["heatmap"] is None and plan["notices"]
+    assert len(plan["routes"]) == 3
+
+
+def test_checkpoint_weather_failure_is_an_error(monkeypatch):
+    from trips.providers import FakeWeather, ProviderError
+
+    def broken(self, points, start, end, max_locations=None):
+        raise ProviderError("api.open-meteo.com request failed: Read timed out.")
+
+    monkeypatch.setattr(FakeWeather, "hourly", broken)
+    with pytest.raises(ProviderError):
+        planner.plan_trip(CHICAGO, ST_LOUIS, datetime.now(UTC), 35_000, 25)

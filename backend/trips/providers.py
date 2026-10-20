@@ -9,6 +9,7 @@ import json
 import math
 import time
 from bisect import bisect_left
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -18,7 +19,7 @@ from django.core.cache import cache
 
 from .geo import METERS_PER_MILE, LatLon, bearing, decode_polyline, destination, haversine_mi, interpolate
 
-TIMEOUT_S = 10
+TIMEOUT_S = (5, 20)  # connect, read. Open-Meteo can take 10+ s under load even for small batches.
 session = requests.Session()
 session.headers["User-Agent"] = "spotter-weather-routing/1.0 (assessment demo)"
 
@@ -32,9 +33,12 @@ def _get_json(url: str, params: dict, cache_s: int) -> dict | list:
     if (hit := cache.get(key)) is not None:
         return hit
     try:
-        response = session.get(url, params=params, timeout=TIMEOUT_S)
-        if response.status_code == 429 or response.status_code >= 500:
-            time.sleep(1.5)  # one polite retry for rate limits and blips
+        try:
+            response = session.get(url, params=params, timeout=TIMEOUT_S)
+        except (requests.Timeout, requests.ConnectionError):
+            response = None
+        if response is None or response.status_code == 429 or response.status_code >= 500:
+            time.sleep(1.5)  # one polite retry for timeouts, rate limits and blips
             response = session.get(url, params=params, timeout=TIMEOUT_S)
         if response.status_code == 429:
             raise ProviderError(f"{url.split('/')[2]} is rate-limiting requests; try again in a minute.")
@@ -139,7 +143,8 @@ def _hour(dt: datetime) -> str:
 
 
 class OpenMeteoWeather:
-    CHUNK = 100  # locations per request
+    CHUNK = 25  # locations per request: big batches are disproportionately slow (100 took 12-36 s, 25 about 2 s)
+    WORKERS = 4
     SNAP_DEG = 0.05  # ~3.5 mi, finer than the forecast models; lets nearby points share a fetch
 
     def hourly(
@@ -157,10 +162,10 @@ class OpenMeteoWeather:
             if not max_locations or len(unique) <= max_locations:
                 break
             step *= 1.25
-        # Sequential on purpose: the free tier rate-limits bursts per minute.
-        fetched = [
-            f for i in range(0, len(unique), self.CHUNK) for f in self._fetch(unique[i : i + self.CHUNK], start, end)
-        ]
+        # Parallel small batches; the per-minute quota counts locations, not requests.
+        chunks = [unique[i : i + self.CHUNK] for i in range(0, len(unique), self.CHUNK)]
+        with ThreadPoolExecutor(max_workers=self.WORKERS) as pool:
+            fetched = [f for chunk in pool.map(lambda c: self._fetch(c, start, end), chunks) for f in chunk]
         by_point = dict(zip(unique, fetched))
         return [by_point[p] for p in snap]
 

@@ -39,7 +39,7 @@ the storm.
 
 | Suite | Command | What it covers |
 | --- | --- | --- |
-| Backend unit + API (105) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
+| Backend unit + API (109) | `cd backend && ../.venv/bin/pytest` | every risk/load threshold edge, polyline codec, HOS maths, ETA weather lookup, ranking order, forced alternatives, API validation/errors/rate limit, provider parsing with mocked HTTP |
 | Frontend unit (17) | `cd frontend && npm test` | polyline decoding, colour ramps, heatmap pixels, truck interpolation, form payload, route list, API errors |
 | End-to-end (22) | `cd frontend && npm run test:e2e` | production build served by gunicorn, on desktop and mobile: plan, select, slider, play, layers, HOS stops, suggestions, validation, upstream errors, light/dark + reduced motion, heatmap outage, no console errors |
 
@@ -108,8 +108,10 @@ of rain, or 3.0 in/hr of snow, is still Severe, because No Travel is written as 
   most about 150: up to 90 for checkpoints and 60 heatmap cells. On long trips at 10 mi spacing, nearby
   checkpoints share the nearest forecast grid point; the grid is coarsened only as far as the budget needs,
   about 0.1-0.25°, close to the resolution of the forecast models. Each checkpoint still gets its own ETA hour.
-  Points go 100 per request and results are cached for 30 minutes.
-- **Graceful degradation.** Checkpoint weather is fetched first. If the heatmap call is rate-limited, the
+  Points go 25 per request, four requests in parallel; large batches are disproportionately slow on
+  Open-Meteo. A timed-out request is retried once, and results are cached for 30 minutes.
+- **Graceful degradation.** Checkpoint weather and heatmap weather are fetched at the same time, and the
+  heatmap gets only 15 s more than the checkpoints. If the heatmap call is rate-limited, the
   routes and recommendation still come back, with a notice that the heatmap is unavailable. Set
   `OPEN_METEO_API_KEY` to raise both budgets.
 

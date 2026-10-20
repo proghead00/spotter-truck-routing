@@ -179,6 +179,52 @@ def test_open_meteo_rate_limit_is_reported():
 
 
 @responses.activate
+def test_open_meteo_retries_a_timeout():
+    import requests as rq
+
+    cache.clear()
+    hourly = {
+        "time": [1_800_000_000],
+        "wind_speed_10m": [5],
+        "wind_gusts_10m": [9],
+        "rain": [0],
+        "showers": [0],
+        "snowfall": [0],
+    }
+    responses.get("https://api.open-meteo.com/v1/forecast", body=rq.exceptions.ReadTimeout("Read timed out."))
+    responses.get("https://api.open-meteo.com/v1/forecast", json={"hourly": hourly})
+    start = datetime(2027, 1, 15, 8, tzinfo=UTC)
+    (f,) = providers.OpenMeteoWeather().hourly([(40, -90)], start, start)
+    assert f.wind_mph == [5] and len(responses.calls) == 2
+
+
+@responses.activate
+def test_open_meteo_sends_small_batches():
+    cache.clear()
+
+    def reply(request):
+        n = len(request.params["latitude"].split(","))
+        item = {
+            "hourly": {
+                "time": [1],
+                "wind_speed_10m": [1],
+                "wind_gusts_10m": [1],
+                "rain": [0],
+                "showers": [0],
+                "snowfall": [0],
+            }
+        }
+        return 200, {}, json.dumps([item] * n if n > 1 else item)
+
+    responses.add_callback(responses.GET, "https://api.open-meteo.com/v1/forecast", callback=reply)
+    points = [(30 + i * 0.5, -100 + i * 0.5) for i in range(60)]
+    start = datetime(2027, 1, 15, 8, tzinfo=UTC)
+    assert len(providers.OpenMeteoWeather().hourly(points, start, start)) == 60
+    sizes = sorted(len(c.request.params["latitude"].split(",")) for c in responses.calls)
+    assert sizes == [10, 25, 25]
+
+
+@responses.activate
 def test_photon_parsing():
     cache.clear()
     responses.get(
